@@ -24,6 +24,45 @@
 #include "applet-notifications.h"
 #include "applet-load-icons.h"
 
+static gboolean cd_load_desktop_file (const gchar *uri, Icon *pIcon)
+{
+    GKeyFile *kf = g_key_file_new();
+    GError *err = NULL;
+
+	const gchar *cPath = uri;
+    if (g_str_has_prefix(uri, "file://")) {
+        cPath = uri + 7;
+    } 
+
+    if (!g_key_file_load_from_file(kf, cPath, G_KEY_FILE_NONE, &err)) {
+        g_warning("Failed to parse desktop file %s: %s", cPath, err->message);
+        g_error_free(err);
+        g_key_file_free(kf);
+        return FALSE;
+    }
+
+    gchar *name = g_key_file_get_locale_string(kf, "Desktop Entry", "Name", NULL, NULL);
+    if (name) {
+        gldi_icon_set_name(pIcon, name);
+        g_free(name);
+    }
+
+    gchar *icon = g_key_file_get_string(kf, "Desktop Entry", "Icon", NULL);
+    if (icon) {
+        gchar *resolved = cairo_dock_search_icon_s_path(icon, 48);
+        if (resolved) {
+            g_free(pIcon->cFileName);
+            pIcon->cFileName = g_strdup(resolved);
+            // cairo_dock_load_icon_image(pIcon, NULL);
+            g_free(resolved);
+        }
+        g_free(icon);
+    }
+
+    g_key_file_free(kf);
+    return TRUE;
+}
+
 static void _cd_folders_remove_all_icons (GldiModuleInstance *myApplet);
 
 void cd_shortcuts_set_icon_order (Icon *pNewIcon, GList *pIconsList, GCompareFunc comp)
@@ -144,7 +183,13 @@ static void _manage_event_on_file (CairoDockFMEventType iEventType, const gchar 
 			}
 			
 			//\_______________________ on cree une icone pour cette nouvelle URI.
-			Icon *pNewIcon = cairo_dock_fm_create_icon_from_URI (cURI, pContainer, myConfig.iSortType);
+			
+			Icon *pNewIcon;
+			if (g_str_has_suffix(cURI, ".desktop")) {
+    			cd_load_desktop_file(cURI, pNewIcon);
+			} else {
+				pNewIcon = cairo_dock_fm_create_icon_from_URI (cURI, pContainer, myConfig.iSortType);
+			}
 			if (pNewIcon == NULL)
 			{
 				cd_warning ("couldn't create an icon for this file");
@@ -175,7 +220,13 @@ static void _manage_event_on_file (CairoDockFMEventType iEventType, const gchar 
 			cd_debug (" %s is modified", pConcernedIcon->cName);
 			
 			//\_______________________ on recupere les infos actuelles.
-			Icon *pNewIcon = cairo_dock_fm_create_icon_from_URI (cURI, pContainer, myConfig.iSortType);
+			
+			Icon *pNewIcon;
+			if (g_str_has_suffix(cURI, ".desktop")) {
+				cd_load_desktop_file(cURI, pNewIcon);
+			} else {
+				pNewIcon = cairo_dock_fm_create_icon_from_URI (cURI, pContainer, myConfig.iSortType);
+			}
 			if (pNewIcon == NULL)
 			{
 				cd_warning ("couldn't create an icon for this file");
@@ -282,6 +333,9 @@ static void _cd_folders_get_data (CDSharedMemory *pSharedMemory)
 	{
 		pIcon = ic->data;
 		//g_print ("  %s (%d)\n", pIcon->cName, pIcon->iVolumeID);
+		if (g_str_has_suffix(pIcon->cBaseURI, ".desktop")) {
+        	cd_load_desktop_file(pIcon->cBaseURI, pIcon);
+		}
 		pIcon->fOrder = iOrder ++;
 	}
 }
